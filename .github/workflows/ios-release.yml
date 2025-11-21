@@ -1,0 +1,226 @@
+name: iOS Release Build
+
+on:
+  push:
+    tags:
+      - 'ios-v*'
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version number (e.g., 1.0.0)'
+        required: true
+        type: string
+
+jobs:
+  build-and-release:
+    name: Build and Release iOS App
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      
+      - name: Show Xcode version
+        run: xcodebuild -version
+      
+      - name: Install xcodegen
+        run: |
+          if ! command -v xcodegen &> /dev/null; then
+            brew install xcodegen
+          fi
+        continue-on-error: true
+      
+      - name: Generate Xcode project
+        working-directory: ios
+        run: |
+          if command -v xcodegen &> /dev/null && [ -f "xcodegen.yml" ]; then
+            xcodegen generate
+            echo "✅ Project generated"
+          else
+            echo "⚠️  xcodegen not available, using existing project"
+          fi
+        continue-on-error: true
+      
+      - name: Setup Apple Developer certificates
+        if: env.APPLE_CERTIFICATE_BASE64 != ''
+        env:
+          APPLE_CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          if [ -n "$APPLE_CERTIFICATE_BASE64" ]; then
+            echo "Setting up certificates..."
+            # Create variables
+            CERTIFICATES_PATH="$RUNNER_TEMP/certificates"
+            KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+            
+            # Create certificates directory
+            mkdir -p "$CERTIFICATES_PATH"
+            
+            # Decode certificate
+            echo "$APPLE_CERTIFICATE_BASE64" | base64 --decode > "$CERTIFICATES_PATH/certificate.p12"
+            
+            # Create temporary keychain
+            security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+            security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+            
+            # Import certificate
+            security import "$CERTIFICATES_PATH/certificate.p12" -P "$APPLE_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$KEYCHAIN_PATH" || true
+            security list-keychain -d user -s "$KEYCHAIN_PATH"
+            
+            echo "✅ Certificates set up"
+          else
+            echo "ℹ️  No certificates provided, will build without signing"
+          fi
+        continue-on-error: true
+      
+      - name: Build for iOS Device
+        working-directory: ios
+        env:
+          DEVELOPER_TEAM_ID: ${{ secrets.DEVELOPER_TEAM_ID }}
+          PROVISIONING_PROFILE_SPECIFIER: ${{ secrets.PROVISIONING_PROFILE_SPECIFIER }}
+        run: |
+          if [ -f "LotteryApp.xcodeproj/project.pbxproj" ]; then
+            echo "🔨 Building for iOS device..."
+            
+            # Build configuration
+            SCHEME="LotteryApp"
+            CONFIGURATION="Release"
+            
+            if [ -n "$DEVELOPER_TEAM_ID" ]; then
+              echo "Building with code signing..."
+              xcodebuild clean archive \
+                -project LotteryApp.xcodeproj \
+                -scheme "$SCHEME" \
+                -configuration "$CONFIGURATION" \
+                -archivePath "$RUNNER_TEMP/LotteryApp.xcarchive" \
+                -sdk iphoneos \
+                CODE_SIGN_IDENTITY="iPhone Developer" \
+                DEVELOPMENT_TEAM="$DEVELOPER_TEAM_ID" \
+                PROVISIONING_PROFILE_SPECIFIER="$PROVISIONING_PROFILE_SPECIFIER" \
+                CODE_SIGNING_REQUIRED=YES \
+                CODE_SIGNING_ALLOWED=YES
+            else
+              echo "Building without code signing (for simulator only)..."
+              xcodebuild clean build \
+                -project LotteryApp.xcodeproj \
+                -scheme "$SCHEME" \
+                -configuration "$CONFIGURATION" \
+                -sdk iphonesimulator \
+                CODE_SIGNING_REQUIRED=NO \
+                CODE_SIGNING_ALLOWED=NO
+            fi
+            
+            echo "✅ Build completed"
+          else
+            echo "⚠️  Xcode project not found"
+            exit 1
+          fi
+        continue-on-error: true
+      
+      - name: Export IPA
+        if: env.DEVELOPER_TEAM_ID != ''
+        working-directory: ios
+        env:
+          DEVELOPER_TEAM_ID: ${{ secrets.DEVELOPER_TEAM_ID }}
+        run: |
+          if [ -f "$RUNNER_TEMP/LotteryApp.xcarchive" ]; then
+            echo "📦 Exporting IPA..."
+            
+            # Create export options plist
+            cat > "$RUNNER_TEMP/ExportOptions.plist" << EOF
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+              <key>method</key>
+              <string>ad-hoc</string>
+              <key>teamID</key>
+              <string>$DEVELOPER_TEAM_ID</string>
+          </dict>
+          </plist>
+          EOF
+            
+            xcodebuild -exportArchive \
+              -archivePath "$RUNNER_TEMP/LotteryApp.xcarchive" \
+              -exportOptionsPlist "$RUNNER_TEMP/ExportOptions.plist" \
+              -exportPath "$RUNNER_TEMP/export"
+            
+            echo "✅ IPA exported"
+          else
+            echo "⚠️  Archive not found, skipping IPA export"
+          fi
+        continue-on-error: true
+      
+      - name: Upload IPA artifact
+        if: env.DEVELOPER_TEAM_ID != ''
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-ipa
+          path: ${{ runner.temp }}/export/*.ipa
+          if-no-files-found: ignore
+          retention-days: 30
+      
+      - name: Create installation instructions
+        run: |
+          cat > "$RUNNER_TEMP/INSTALL_INSTRUCTIONS.md" << 'EOF'
+          # Установка iOS приложения на устройство
+          
+          ## Способ 1: TestFlight (рекомендуется)
+          
+          1. Загрузите IPA в App Store Connect
+          2. Добавьте тестировщиков в TestFlight
+          3. Установите TestFlight на iPhone
+          4. Откройте приглашение из TestFlight
+          
+          ## Способ 2: Ad Hoc установка
+          
+          ### Требования:
+          - IPA файл из артефактов
+          - UDID устройства добавлен в provisioning profile
+          - Apple Configurator 2 или Xcode
+          
+          ### Через Apple Configurator:
+          1. Установите Apple Configurator 2 на Mac
+          2. Подключите iPhone к Mac
+          3. Откройте Apple Configurator
+          4. Выберите устройство
+          5. Перетащите IPA файл в приложения
+          
+          ### Через Xcode:
+          1. Откройте Xcode → Window → Devices and Simulators
+          2. Подключите iPhone
+          3. Выберите устройство
+          4. Нажмите "+" и выберите IPA файл
+          
+          ## Способ 3: Через веб-сайт (Enterprise)
+          
+          Если у вас Enterprise аккаунт:
+          1. Загрузите IPA на веб-сервер
+          2. Создайте manifest.plist
+          3. Разместите ссылку для установки
+          
+          ## Способ 4: AltStore / Sideloadly (для разработки)
+          
+          Для разработки без Apple Developer:
+          1. Установите AltStore или Sideloadly
+          2. Используйте бесплатный Apple ID
+          3. Ограничение: 7 дней, нужно переустанавливать
+          EOF
+          
+          cat "$RUNNER_TEMP/INSTALL_INSTRUCTIONS.md"
+      
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-build-info
+          path: ${{ runner.temp }}/INSTALL_INSTRUCTIONS.md
+          if-no-files-found: ignore
+          retention-days: 30
+

@@ -1,0 +1,70 @@
+name: iOS Simple Build (No Signing)
+
+on:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'ios/**'
+  workflow_dispatch:
+
+jobs:
+  build:
+    name: Build iOS App (Simulator)
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Setup Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+      
+      - name: Install xcodegen
+        run: brew install xcodegen || echo "xcodegen install failed, continuing..."
+        continue-on-error: true
+      
+      - name: Generate Xcode project
+        working-directory: ios
+        run: |
+          if command -v xcodegen &> /dev/null && [ -f "xcodegen.yml" ]; then
+            echo "Generating Xcode project..."
+            xcodegen generate
+          fi
+        continue-on-error: true
+      
+      - name: Build for Simulator
+        working-directory: ios
+        run: |
+          if [ -f "LotteryApp.xcodeproj/project.pbxproj" ]; then
+            xcodebuild clean build \
+              -project LotteryApp.xcodeproj \
+              -scheme LotteryApp \
+              -sdk iphonesimulator \
+              -destination 'platform=iOS Simulator,name=iPhone 15,OS=latest' \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGNING_ALLOWED=NO
+            
+            echo "✅ Build successful!"
+            echo "📱 App built for iOS Simulator"
+            echo ""
+            echo "⚠️  To install on real device, you need:"
+            echo "   1. Apple Developer account"
+            echo "   2. Certificates and provisioning profile"
+            echo "   3. Use ios-release.yml workflow"
+          else
+            echo "❌ Xcode project not found"
+            echo "Create project manually or install xcodegen"
+            exit 1
+          fi
+      
+      - name: Upload build info
+        uses: actions/upload-artifact@v4
+        with:
+          name: ios-simulator-build
+          path: |
+            ios/build/
+          if-no-files-found: ignore
+          retention-days: 7
+
