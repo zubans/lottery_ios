@@ -1,0 +1,35 @@
+name: LotteryApp
+options:
+  bundleIdPrefix: com.lottery
+  deploymentTarget:
+    iOS: "15.0"
+  developmentLanguage: ru
+
+targets:
+  LotteryApp:
+    type: application
+    platform: iOS
+    deploymentTarget: "15.0"
+    sources:
+      - path: LotteryApp
+    settings:
+      PRODUCT_BUNDLE_IDENTIFIER: com.lottery.app
+      INFOPLIST_FILE: Info.plist
+      SWIFT_VERSION: "5.9"
+      CODE_SIGN_IDENTITY: ""
+      CODE_SIGNING_REQUIRED: NO
+      CODE_SIGNING_ALLOWED: NO
+      SWIFT_ACTIVE_COMPILATION_CONDITIONS: DEBUG
+    info:
+      path: Info.plist
+      properties:
+        CFBundleDisplayName: Лотерея
+        CFBundleShortVersionString: "1.0"
+        CFBundleVersion: "1"
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+          - UIInterfaceOrientationLandscapeLeft
+          - UIInterfaceOrientationLandscapeRight
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+
