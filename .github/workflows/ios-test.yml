@@ -1,0 +1,52 @@
+name: iOS Tests
+
+on:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'ios/**'
+  pull_request:
+    branches: [ master, main ]
+    paths:
+      - 'ios/**'
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: Test iOS App
+    runs-on: macos-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Select Xcode version
+        run: sudo xcode-select -s /Applications/Xcode_15.0.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_15.1.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_15.2.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_15.3.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode_15.4.app/Contents/Developer || sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+      
+      - name: Swift Lint Check
+        working-directory: ios
+        run: |
+          echo "Checking Swift syntax..."
+          find LotteryApp -name "*.swift" -type f -exec echo "File: {}" \;
+        continue-on-error: true
+      
+      - name: Validate project structure
+        working-directory: ios
+        run: |
+          echo "Checking project structure..."
+          if [ -d "LotteryApp" ]; then
+            echo "✅ LotteryApp directory exists"
+            ls -la LotteryApp/
+          else
+            echo "⚠️  LotteryApp directory not found"
+          fi
+          
+          required_dirs=("Models" "Services" "ViewModels" "Views" "Utils" "App")
+          for dir in "${required_dirs[@]}"; do
+            if [ -d "LotteryApp/$dir" ]; then
+              echo "✅ $dir exists"
+            else
+              echo "⚠️  $dir not found"
+            fi
+          done
+

@@ -1,0 +1,114 @@
+name: iOS Validate
+
+on:
+  push:
+    branches: [ master, main ]
+    paths:
+      - 'ios/**'
+  pull_request:
+    branches: [ master, main ]
+    paths:
+      - 'ios/**'
+
+jobs:
+  validate:
+    name: Validate iOS Project
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check project structure
+        working-directory: ios
+        run: |
+          echo "📁 Checking iOS project structure..."
+          
+          required_dirs=(
+            "LotteryApp/App"
+            "LotteryApp/Models"
+            "LotteryApp/Services"
+            "LotteryApp/ViewModels"
+            "LotteryApp/Views"
+            "LotteryApp/Utils"
+          )
+          
+          missing_dirs=()
+          for dir in "${required_dirs[@]}"; do
+            if [ ! -d "$dir" ]; then
+              missing_dirs+=("$dir")
+            fi
+          done
+          
+          if [ ${#missing_dirs[@]} -eq 0 ]; then
+            echo "✅ All required directories exist"
+          else
+            echo "❌ Missing directories:"
+            printf '  - %s\n' "${missing_dirs[@]}"
+            exit 1
+          fi
+      
+      - name: Check required files
+        working-directory: ios
+        run: |
+          echo "📄 Checking required files..."
+          
+          required_files=(
+            "LotteryApp/App/LotteryApp.swift"
+            "LotteryApp/App/ContentView.swift"
+            "LotteryApp/Models/User.swift"
+            "LotteryApp/Models/Game.swift"
+            "LotteryApp/Services/ApiService.swift"
+            "LotteryApp/Services/TokenManager.swift"
+            "LotteryApp/Views/Auth/LoginView.swift"
+            "LotteryApp/Views/Home/HomeView.swift"
+            "LotteryApp/Views/Profile/ProfileView.swift"
+            "Info.plist"
+          )
+          
+          missing_files=()
+          for file in "${required_files[@]}"; do
+            if [ ! -f "$file" ]; then
+              missing_files+=("$file")
+            fi
+          done
+          
+          if [ ${#missing_files[@]} -eq 0 ]; then
+            echo "✅ All required files exist"
+          else
+            echo "❌ Missing files:"
+            printf '  - %s\n' "${missing_files[@]}"
+            exit 1
+          fi
+      
+      - name: Count Swift files
+        working-directory: ios
+        run: |
+          swift_count=$(find LotteryApp -name "*.swift" -type f 2>/dev/null | wc -l)
+          echo "📊 Found $swift_count Swift files"
+          
+          if [ "$swift_count" -lt 20 ]; then
+            echo "⚠️  Expected at least 20 Swift files, found $swift_count"
+          else
+            echo "✅ Swift files count looks good"
+          fi
+      
+      - name: Check for common issues
+        working-directory: ios
+        run: |
+          echo "🔍 Checking for common issues..."
+          
+          # Check for Info.plist ATS settings
+          if grep -q "NSAllowsArbitraryLoads" Info.plist 2>/dev/null; then
+            echo "✅ App Transport Security configured"
+          else
+            echo "⚠️  NSAllowsArbitraryLoads not found in Info.plist"
+          fi
+          
+          # Check for Constants
+          if grep -q "baseURL" LotteryApp/Utils/Constants.swift 2>/dev/null; then
+            echo "✅ Constants.swift contains baseURL"
+          else
+            echo "⚠️  Constants.swift may be missing baseURL"
+          fi
+
