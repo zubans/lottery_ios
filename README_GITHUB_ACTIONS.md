@@ -67,3 +67,5 @@ xcodegen generate
 
 Файл `xcodegen.yml` уже создан в проекте.
 
+
+
